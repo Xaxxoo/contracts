@@ -480,6 +480,16 @@ impl PatientVitalsContract {
         let next_page = if end < total_windows { Some(page + 1) } else { None };
         Ok(PagedAggResult { aggregates, next_page })
     }
+
+    /// Retrieve all alerts for a patient's specific vital type.
+    pub fn get_alerts(
+        env: Env,
+        patient_id: Address,
+        vital_type: Symbol,
+    ) -> Vec<VitalAlert> {
+        let key = DataKey::VitalsAlerts(patient_id, vital_type);
+        env.storage().persistent().get(&key).unwrap_or(Vec::new(&env))
+    }
 }
 
 /// Convert a u32 to a decimal Soroban String (no_std, no alloc).

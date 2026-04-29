@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 
 use crate::contract::{PatientVitalsContract, PatientVitalsContractClient};
-use crate::types::{AlertThresholds, DeviceReading, Range, VitalSigns};
+use crate::types::{AlertThresholds, DeviceReading, Range, VitalSigns, ALERT_COOLDOWN_SECONDS};
 use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol, Vec};
 
 #[test]
@@ -169,4 +169,174 @@ fn test_calculate_vital_statistics() {
     assert_eq!(stats.min_value, 80);
     assert_eq!(stats.max_value, 90);
     assert_eq!(stats.average_value, 85);
+}
+
+// ── Threshold evaluation & alert deduplication ───────────────────────────────
+
+fn setup_heart_rate_thresholds(client: &PatientVitalsContractClient, patient_id: &Address, env: &Env) {
+    let provider_id = Address::generate(env);
+    client.set_monitoring_parameters(
+        patient_id,
+        &provider_id,
+        &Symbol::new(env, "heart_rate"),
+        &Range { min: 60, max: 100 },
+        &AlertThresholds {
+            critical_low: Some(40),
+            low: Some(50),
+            high: Some(110),
+            critical_high: Some(130),
+        },
+        &3600,
+    );
+}
+
+/// A reading that breaches the high threshold must create exactly one alert
+/// with the correct severity.
+#[test]
+fn test_threshold_breach_creates_alert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, PatientVitalsContract);
+    let client = PatientVitalsContractClient::new(&env, &contract_id);
+    let patient_id = Address::generate(&env);
+
+    setup_heart_rate_thresholds(&client, &patient_id, &env);
+
+    let vitals = VitalSigns {
+        heart_rate: Some(120), // above high=110, below critical_high=130 → "high"
+        blood_pressure_systolic: None,
+        blood_pressure_diastolic: None,
+        temperature: None,
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        blood_glucose: None,
+        weight: None,
+    };
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &1_000_000, &vitals);
+
+    let alerts = client.get_alerts(&patient_id, &Symbol::new(&env, "heart_rate"));
+    assert_eq!(alerts.len(), 1);
+    assert_eq!(alerts.get(0).unwrap().severity, Symbol::new(&env, "high"));
+    assert_eq!(alerts.get(0).unwrap().alert_time, 1_000_000);
+}
+
+/// A reading that breaches the critical_high threshold must produce a
+/// "critical_hi" severity alert.
+#[test]
+fn test_critical_threshold_severity() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, PatientVitalsContract);
+    let client = PatientVitalsContractClient::new(&env, &contract_id);
+    let patient_id = Address::generate(&env);
+
+    setup_heart_rate_thresholds(&client, &patient_id, &env);
+
+    let vitals = VitalSigns {
+        heart_rate: Some(135), // >= critical_high=130
+        blood_pressure_systolic: None,
+        blood_pressure_diastolic: None,
+        temperature: None,
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        blood_glucose: None,
+        weight: None,
+    };
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &2_000_000, &vitals);
+
+    let alerts = client.get_alerts(&patient_id, &Symbol::new(&env, "heart_rate"));
+    assert_eq!(alerts.len(), 1);
+    assert_eq!(alerts.get(0).unwrap().severity, Symbol::new(&env, "critical_hi"));
+}
+
+/// A normal reading (within range) must not create any alert.
+#[test]
+fn test_normal_reading_no_alert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, PatientVitalsContract);
+    let client = PatientVitalsContractClient::new(&env, &contract_id);
+    let patient_id = Address::generate(&env);
+
+    setup_heart_rate_thresholds(&client, &patient_id, &env);
+
+    let vitals = VitalSigns {
+        heart_rate: Some(75), // within [60, 100]
+        blood_pressure_systolic: None,
+        blood_pressure_diastolic: None,
+        temperature: None,
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        blood_glucose: None,
+        weight: None,
+    };
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &3_000_000, &vitals);
+
+    let alerts = client.get_alerts(&patient_id, &Symbol::new(&env, "heart_rate"));
+    assert_eq!(alerts.len(), 0);
+}
+
+/// Two consecutive breaching readings within the cooldown window must produce
+/// only one alert (deduplication).
+#[test]
+fn test_cooldown_suppresses_duplicate_alert() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, PatientVitalsContract);
+    let client = PatientVitalsContractClient::new(&env, &contract_id);
+    let patient_id = Address::generate(&env);
+
+    setup_heart_rate_thresholds(&client, &patient_id, &env);
+
+    let vitals = VitalSigns {
+        heart_rate: Some(120),
+        blood_pressure_systolic: None,
+        blood_pressure_diastolic: None,
+        temperature: None,
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        blood_glucose: None,
+        weight: None,
+    };
+    let t0: u64 = 5_000_000;
+    // First breach — alert created.
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &t0, &vitals);
+    // Second breach within cooldown window — must be suppressed.
+    let t1 = t0 + ALERT_COOLDOWN_SECONDS - 1;
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &t1, &vitals);
+
+    let alerts = client.get_alerts(&patient_id, &Symbol::new(&env, "heart_rate"));
+    assert_eq!(alerts.len(), 1, "duplicate alert within cooldown must be suppressed");
+}
+
+/// A breach after the cooldown window has elapsed must produce a second alert.
+#[test]
+fn test_alert_after_cooldown_expires() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, PatientVitalsContract);
+    let client = PatientVitalsContractClient::new(&env, &contract_id);
+    let patient_id = Address::generate(&env);
+
+    setup_heart_rate_thresholds(&client, &patient_id, &env);
+
+    let vitals = VitalSigns {
+        heart_rate: Some(120),
+        blood_pressure_systolic: None,
+        blood_pressure_diastolic: None,
+        temperature: None,
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        blood_glucose: None,
+        weight: None,
+    };
+    let t0: u64 = 6_000_000;
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &t0, &vitals);
+    // After cooldown expires a new alert must be created.
+    let t1 = t0 + ALERT_COOLDOWN_SECONDS;
+    client.record_vital_signs(&patient_id, &Address::generate(&env), &t1, &vitals);
+
+    let alerts = client.get_alerts(&patient_id, &Symbol::new(&env, "heart_rate"));
+    assert_eq!(alerts.len(), 2, "new alert must be created after cooldown expires");
+    assert_eq!(alerts.get(1).unwrap().alert_time, t1);
 }
