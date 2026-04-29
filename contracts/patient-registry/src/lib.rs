@@ -1,6 +1,9 @@
 #![no_std]
 #![allow(deprecated)]
 
+use shared::privacy::{
+    validate_encrypted_ref, validate_policy_metadata, EncryptedEnvelopeRef, PolicyMetadata,
+};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
     xdr::ToXdr, Address, Bytes, BytesN, Env, Map, String, Symbol, Vec,
@@ -29,8 +32,9 @@ pub enum PatientStatus {
 pub struct PatientData {
     pub name: String,
     pub dob: u64,
-    pub metadata: String, // IPFS / encrypted medical refs
+    pub encrypted_metadata_ref: EncryptedEnvelopeRef,
     pub status: PatientStatus,
+    pub policy: PolicyMetadata,
 }
 
 /// --------------------
@@ -144,17 +148,17 @@ pub struct TypeIndexEntry {
 pub struct MedicalRecord {
     pub record_id: u64,
     pub doctor: Address,
-    pub record_hash: Bytes,
-    pub description: String,
+    pub encrypted_ref: EncryptedEnvelopeRef,
     pub timestamp: u64,
     pub record_type: Symbol,
+    pub policy: PolicyMetadata,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldPermission {
     RecordType,
-    IpfsHash,
+    EncryptedRef,
     CreatedAt,
     CreatedBy,
 }
@@ -163,7 +167,7 @@ pub enum FieldPermission {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartialRecord {
     pub record_type: Option<Symbol>,
-    pub ipfs_hash: Option<Bytes>,
+    pub encrypted_ref_hash: Option<BytesN<32>>,
     pub created_at: Option<u64>,
     pub created_by: Option<Address>,
 }
@@ -171,7 +175,7 @@ pub struct PartialRecord {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordVersion {
-    pub ipfs_hash: Bytes,
+    pub encrypted_ref: EncryptedEnvelopeRef,
     pub updated_by: Address,
     pub updated_at: u64,
 }
@@ -181,10 +185,10 @@ pub struct RecordVersion {
 pub struct RecordData {
     pub patient: Address,
     pub record_type: Symbol,
-    pub description: String,
-    pub current_ipfs: Bytes,
+    pub current_ref: EncryptedEnvelopeRef,
     pub history: Vec<RecordVersion>,
     pub latest_version: u64,
+    pub policy: PolicyMetadata,
 }
 
 #[contracttype]
@@ -220,6 +224,8 @@ pub enum ContractError {
     TooManyIds = 18,
     SnapshotRateLimit = 19,
     UnauthorizedInstitution = 20,
+    InvalidEncryptedEnvelope = 21,
+    InvalidPolicyMetadata = 22,
 }
 
 pub fn validate_cid(cid: &Bytes) -> Result<(), ContractError> {
@@ -326,17 +332,18 @@ fn require_record_access(
 }
 
 const FIELD_RECORD_TYPE: u32 = 1 << 0;
-const FIELD_IPFS_HASH: u32 = 1 << 1;
+const FIELD_ENCRYPTED_REF: u32 = 1 << 1;
 const FIELD_CREATED_AT: u32 = 1 << 2;
 const FIELD_CREATED_BY: u32 = 1 << 3;
-const FIELD_ALL: u32 = FIELD_RECORD_TYPE | FIELD_IPFS_HASH | FIELD_CREATED_AT | FIELD_CREATED_BY;
+const FIELD_ALL: u32 =
+    FIELD_RECORD_TYPE | FIELD_ENCRYPTED_REF | FIELD_CREATED_AT | FIELD_CREATED_BY;
 
 fn field_permission_mask(fields: Vec<FieldPermission>) -> u32 {
     let mut mask = 0u32;
     for field in fields.iter() {
         mask |= match field {
             FieldPermission::RecordType => FIELD_RECORD_TYPE,
-            FieldPermission::IpfsHash => FIELD_IPFS_HASH,
+            FieldPermission::EncryptedRef => FIELD_ENCRYPTED_REF,
             FieldPermission::CreatedAt => FIELD_CREATED_AT,
             FieldPermission::CreatedBy => FIELD_CREATED_BY,
         };
@@ -347,7 +354,7 @@ fn field_permission_mask(fields: Vec<FieldPermission>) -> u32 {
 fn empty_partial_record() -> PartialRecord {
     PartialRecord {
         record_type: None,
-        ipfs_hash: None,
+        encrypted_ref_hash: None,
         created_at: None,
         created_by: None,
     }
@@ -361,8 +368,8 @@ fn build_partial_record(record_data: &RecordData, mask: u32) -> PartialRecord {
         } else {
             None
         },
-        ipfs_hash: if (mask & FIELD_IPFS_HASH) != 0 {
-            Some(record_data.current_ipfs.clone())
+        encrypted_ref_hash: if (mask & FIELD_ENCRYPTED_REF) != 0 {
+            Some(record_data.current_ref.content_hash.clone())
         } else {
             None
         },
@@ -594,10 +601,14 @@ impl MedicalRegistry {
         wallet: Address,
         name: String,
         dob: u64,
-        metadata: String,
+        encrypted_metadata_ref: EncryptedEnvelopeRef,
+        policy: PolicyMetadata,
     ) -> Result<(), ContractError> {
         Self::require_not_frozen(&env);
         wallet.require_auth();
+        validate_encrypted_ref(&encrypted_metadata_ref)
+            .map_err(|_| ContractError::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| ContractError::InvalidPolicyMetadata)?;
 
         let key = DataKey::Patient(wallet.clone());
         if env.storage().persistent().has(&key) {
@@ -607,8 +618,9 @@ impl MedicalRegistry {
         let patient = PatientData {
             name,
             dob,
-            metadata,
+            encrypted_metadata_ref,
             status: PatientStatus::Active,
+            policy,
         };
         env.storage().persistent().set(&key, &patient);
         let total_patients: u64 = env
@@ -639,11 +651,15 @@ impl MedicalRegistry {
         env: Env,
         wallet: Address,
         caller: Address,
-        metadata: String,
+        encrypted_metadata_ref: EncryptedEnvelopeRef,
+        policy: PolicyMetadata,
     ) -> Result<(), ContractError> {
         Self::require_not_frozen(&env);
         require_patient_or_guardian(&env, &wallet, &caller)?;
         Self::require_not_on_hold(&env, &wallet)?;
+        validate_encrypted_ref(&encrypted_metadata_ref)
+            .map_err(|_| ContractError::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| ContractError::InvalidPolicyMetadata)?;
 
         let key = DataKey::Patient(wallet.clone());
         let mut patient: PatientData = env
@@ -652,7 +668,8 @@ impl MedicalRegistry {
             .get(&key)
             .ok_or(ContractError::NotFound)?;
 
-        patient.metadata = metadata;
+        patient.encrypted_metadata_ref = encrypted_metadata_ref;
+        patient.policy = policy;
         env.storage().persistent().set(&key, &patient);
 
         env.events()
@@ -1082,14 +1099,16 @@ impl MedicalRegistry {
         env: Env,
         patient: Address,
         doctor: Address,
-        record_hash: Bytes,
-        description: String,
+        encrypted_ref: EncryptedEnvelopeRef,
         record_type: Symbol,
+        policy: PolicyMetadata,
     ) -> Result<u64, ContractError> {
         Self::require_not_frozen(&env);
         Self::require_patient_exists(&env, &patient)?;
         doctor.require_auth();
-        validate_cid(&record_hash)?;
+        validate_encrypted_ref(&encrypted_ref)
+            .map_err(|_| ContractError::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| ContractError::InvalidPolicyMetadata)?;
 
         // Collect record fee if set
         let fee: i128 = env
@@ -1142,7 +1161,7 @@ impl MedicalRegistry {
             .set(&DataKey::RecordCounter, &record_id);
 
         let initial_version = RecordVersion {
-            ipfs_hash: record_hash.clone(),
+            encrypted_ref: encrypted_ref.clone(),
             updated_by: doctor.clone(),
             updated_at: timestamp,
         };
@@ -1150,14 +1169,14 @@ impl MedicalRegistry {
         let record_data = RecordData {
             patient: patient.clone(),
             record_type: record_type.clone(),
-            description: description.clone(),
-            current_ipfs: record_hash.clone(),
+            current_ref: encrypted_ref.clone(),
             history: {
                 let mut h = Vec::new(&env);
                 h.push_back(initial_version);
                 h
             },
             latest_version: 1u64,
+            policy: policy.clone(),
         };
 
         let counter_key = DataKey::RecordCounter;
@@ -1169,10 +1188,10 @@ impl MedicalRegistry {
         let record = MedicalRecord {
             record_id,
             doctor: doctor.clone(),
-            record_hash,
-            description,
+            encrypted_ref,
             timestamp,
             record_type: record_type.clone(),
+            policy,
         };
 
         // Store record data (using cloned values)
@@ -1402,7 +1421,8 @@ impl MedicalRegistry {
         env: Env,
         caller: Address,
         record_id: u64,
-        new_ipfs_hash: Bytes,
+        new_encrypted_ref: EncryptedEnvelopeRef,
+        policy: PolicyMetadata,
     ) -> Result<(), ContractError> {
         Self::require_not_frozen(&env);
 
@@ -1420,18 +1440,21 @@ impl MedicalRegistry {
         caller.require_auth();
         require_record_access(&env, &patient, &caller)?;
 
-        validate_cid(&new_ipfs_hash)?;
+        validate_encrypted_ref(&new_encrypted_ref)
+            .map_err(|_| ContractError::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| ContractError::InvalidPolicyMetadata)?;
 
         let timestamp = env.ledger().timestamp();
 
         // Append old current to history
         let old_version = RecordVersion {
-            ipfs_hash: record_data.current_ipfs.clone(),
+            encrypted_ref: record_data.current_ref.clone(),
             updated_by: caller.clone(),
             updated_at: timestamp,
         };
         record_data.history.push_back(old_version);
-        record_data.current_ipfs = new_ipfs_hash;
+        record_data.current_ref = new_encrypted_ref;
+        record_data.policy = policy;
         record_data.latest_version += 1;
 
         env.storage().persistent().set(&record_key, &record_data);
@@ -1553,14 +1576,14 @@ impl MedicalRegistry {
                                     "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
                                 )
                             }),
-                        record_hash: record_data.current_ipfs.clone(),
-                        description: record_data.description.clone(),
+                        encrypted_ref: record_data.current_ref.clone(),
                         timestamp: record_data
                             .history
                             .get(0)
                             .map(|v| v.updated_at)
                             .unwrap_or(0),
                         record_type: record_type.clone(),
+                        policy: record_data.policy.clone(),
                     };
                     filtered.push_back(mr);
                 }

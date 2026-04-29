@@ -26,7 +26,60 @@
                   "u64": "631152000"
                 },
                 {
-                  "string": "ipfs://test"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "content_hash"
+                      },
+                      "val": {
+                        "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "envelope_uri"
+                      },
+                      "val": {
+                        "string": "enc+ipfs://bafyvalidpatientref"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "key_version_id"
+                      },
+                      "val": {
+                        "string": "kv:v01"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "access_policy_hash"
+                      },
+                      "val": {
+                        "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "purpose"
+                      },
+                      "val": {
+                        "symbol": "treatment"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "retention_class"
+                      },
+                      "val": {
+                        "symbol": "clinical"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -120,13 +173,63 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "bytes": "620101010101010101010101010101010101010101010101010101010101010101010101"
-                },
-                {
-                  "string": "Blood test results"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "content_hash"
+                      },
+                      "val": {
+                        "bytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "envelope_uri"
+                      },
+                      "val": {
+                        "string": "enc+ipfs://bafyvalidpatientref"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "key_version_id"
+                      },
+                      "val": {
+                        "string": "kv:v01"
+                      }
+                    }
+                  ]
                 },
                 {
                   "symbol": "LAB"
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "access_policy_hash"
+                      },
+                      "val": {
+                        "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "purpose"
+                      },
+                      "val": {
+                        "symbol": "treatment"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "retention_class"
+                      },
+                      "val": {
+                        "symbol": "clinical"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -135,7 +238,28 @@
         }
       ]
     ],
-    []
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "get_medical_records",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ]
   ],
   "ledger": {
     "protocol_version": 23,
@@ -292,6 +416,72 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "GlobalTypeIndex"
+                },
+                {
+                  "symbol": "LAB"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "GlobalTypeIndex"
+                    },
+                    {
+                      "symbol": "LAB"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "patient"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "record_id"
+                          },
+                          "val": {
+                            "u64": "1"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          535680
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "MedicalRecord"
                 },
                 {
@@ -324,18 +514,35 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "current_ipfs"
+                        "symbol": "current_ref"
                       },
                       "val": {
-                        "bytes": "620101010101010101010101010101010101010101010101010101010101010101010101"
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "description"
-                      },
-                      "val": {
-                        "string": "Blood test results"
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "content_hash"
+                            },
+                            "val": {
+                              "bytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "envelope_uri"
+                            },
+                            "val": {
+                              "string": "enc+ipfs://bafyvalidpatientref"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "key_version_id"
+                            },
+                            "val": {
+                              "string": "kv:v01"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -348,10 +555,35 @@
                             "map": [
                               {
                                 "key": {
-                                  "symbol": "ipfs_hash"
+                                  "symbol": "encrypted_ref"
                                 },
                                 "val": {
-                                  "bytes": "620101010101010101010101010101010101010101010101010101010101010101010101"
+                                  "map": [
+                                    {
+                                      "key": {
+                                        "symbol": "content_hash"
+                                      },
+                                      "val": {
+                                        "bytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+                                      }
+                                    },
+                                    {
+                                      "key": {
+                                        "symbol": "envelope_uri"
+                                      },
+                                      "val": {
+                                        "string": "enc+ipfs://bafyvalidpatientref"
+                                      }
+                                    },
+                                    {
+                                      "key": {
+                                        "symbol": "key_version_id"
+                                      },
+                                      "val": {
+                                        "string": "kv:v01"
+                                      }
+                                    }
+                                  ]
                                 }
                               },
                               {
@@ -389,6 +621,39 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "policy"
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "access_policy_hash"
+                            },
+                            "val": {
+                              "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "purpose"
+                            },
+                            "val": {
+                              "symbol": "treatment"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "retention_class"
+                            },
+                            "val": {
+                              "symbol": "clinical"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -449,14 +714,6 @@
                       "map": [
                         {
                           "key": {
-                            "symbol": "description"
-                          },
-                          "val": {
-                            "string": "Blood test results"
-                          }
-                        },
-                        {
-                          "key": {
                             "symbol": "doctor"
                           },
                           "val": {
@@ -465,10 +722,68 @@
                         },
                         {
                           "key": {
-                            "symbol": "record_hash"
+                            "symbol": "encrypted_ref"
                           },
                           "val": {
-                            "bytes": "620101010101010101010101010101010101010101010101010101010101010101010101"
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "content_hash"
+                                },
+                                "val": {
+                                  "bytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "envelope_uri"
+                                },
+                                "val": {
+                                  "string": "enc+ipfs://bafyvalidpatientref"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "key_version_id"
+                                },
+                                "val": {
+                                  "string": "kv:v01"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "policy"
+                          },
+                          "val": {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "access_policy_hash"
+                                },
+                                "val": {
+                                  "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "purpose"
+                                },
+                                "val": {
+                                  "symbol": "treatment"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "retention_class"
+                                },
+                                "val": {
+                                  "symbol": "clinical"
+                                }
+                              }
+                            ]
                           }
                         },
                         {
@@ -598,10 +913,35 @@
                     },
                     {
                       "key": {
-                        "symbol": "metadata"
+                        "symbol": "encrypted_metadata_ref"
                       },
                       "val": {
-                        "string": "ipfs://test"
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "content_hash"
+                            },
+                            "val": {
+                              "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "envelope_uri"
+                            },
+                            "val": {
+                              "string": "enc+ipfs://bafyvalidpatientref"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "key_version_id"
+                            },
+                            "val": {
+                              "string": "kv:v01"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -610,6 +950,39 @@
                       },
                       "val": {
                         "string": "Test Patient"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "policy"
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "access_policy_hash"
+                            },
+                            "val": {
+                              "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "purpose"
+                            },
+                            "val": {
+                              "symbol": "treatment"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "retention_class"
+                            },
+                            "val": {
+                              "symbol": "clinical"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -729,6 +1102,45 @@
         {
           "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "RecordCounter"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "RecordCounter"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u64": "1"
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
             "key": "ledger_key_contract_instance",
             "durability": "persistent"
           }
@@ -800,7 +1212,43 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "TotalAccessGrants"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": "1"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TotalPatients"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": "1"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalProviders"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": "0"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalRecordsCreated"
                             }
                           ]
                         },
@@ -918,6 +1366,39 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": "1033654523790656264"
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": "4270020994084947596"
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": "4270020994084947596"
                   }
                 },
                 "durability": "temporary",

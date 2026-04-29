@@ -25,7 +25,60 @@
                   "u64": "631152000"
                 },
                 {
-                  "string": "ipfs://some-medical-history"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "content_hash"
+                      },
+                      "val": {
+                        "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "envelope_uri"
+                      },
+                      "val": {
+                        "string": "enc+ipfs://bafyvalidpatientref"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "key_version_id"
+                      },
+                      "val": {
+                        "string": "kv:v01"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "access_policy_hash"
+                      },
+                      "val": {
+                        "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "purpose"
+                      },
+                      "val": {
+                        "symbol": "treatment"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "retention_class"
+                      },
+                      "val": {
+                        "symbol": "clinical"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -93,10 +146,35 @@
                     },
                     {
                       "key": {
-                        "symbol": "metadata"
+                        "symbol": "encrypted_metadata_ref"
                       },
                       "val": {
-                        "string": "ipfs://some-medical-history"
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "content_hash"
+                            },
+                            "val": {
+                              "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "envelope_uri"
+                            },
+                            "val": {
+                              "string": "enc+ipfs://bafyvalidpatientref"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "key_version_id"
+                            },
+                            "val": {
+                              "string": "kv:v01"
+                            }
+                          }
+                        ]
                       }
                     },
                     {
@@ -105,6 +183,39 @@
                       },
                       "val": {
                         "string": "John Doe"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "policy"
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "access_policy_hash"
+                            },
+                            "val": {
+                              "bytes": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "purpose"
+                            },
+                            "val": {
+                              "symbol": "treatment"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "retention_class"
+                            },
+                            "val": {
+                              "symbol": "clinical"
+                            }
+                          }
+                        ]
                       }
                     },
                     {

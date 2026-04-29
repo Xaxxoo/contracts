@@ -9,6 +9,7 @@ crate-type = ["lib", "cdylib"]
 doctest = false
 
 [dependencies]
+shared = { workspace = true }
 soroban-sdk = { workspace = true }
 ttl-config = { path = "../ttl-config" }
 
