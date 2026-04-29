@@ -6,6 +6,7 @@ version = 4
 name = "Contracts"
 version = "0.0.0"
 dependencies = [
+ "shared",
  "soroban-sdk",
 ]
 
@@ -852,6 +853,7 @@ name = "health-records"
 version = "0.0.0"
 dependencies = [
  "Contracts",
+ "shared",
  "soroban-sdk",
 ]
 

@@ -2,8 +2,8 @@
 #![allow(non_snake_case)]
 
 use soroban_sdk::{
-    contract, contractevent, contracterror, contractimpl, contracttype, Address, Env, String,
-    Symbol, Vec,
+    contract, contractevent, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
+    String, Symbol, Vec,
 };
 use shared::{events::EVENT_VERSION, temporal};
 

@@ -1,5 +1,8 @@
 #![no_std]
 
+use shared::privacy::{
+    validate_encrypted_ref, validate_policy_metadata, EncryptedEnvelopeRef, PolicyMetadata,
+};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String,
@@ -11,10 +14,11 @@ pub struct MedicalRecord {
     pub record_id: u64,
     pub patient: Address,
     pub provider: Address,
-    pub ipfs_cid: String,
+    pub encrypted_ref: EncryptedEnvelopeRef,
     pub record_type: String,
     pub timestamp: u64,
     pub integrity_hash: BytesN<32>,
+    pub policy: PolicyMetadata,
 }
 
 #[contracttype]
@@ -31,6 +35,8 @@ pub enum Error {
     RecordNotFound = 1,
     Unauthorized = 2,
     ConsentNotGranted = 3,
+    InvalidEncryptedEnvelope = 4,
+    InvalidPolicyMetadata = 5,
 }
 
 fn compute_hash(
@@ -38,7 +44,7 @@ fn compute_hash(
     record_id: u64,
     patient: &Address,
     provider: &Address,
-    ipfs_cid: &String,
+    encrypted_ref: &EncryptedEnvelopeRef,
     record_type: &String,
     timestamp: u64,
 ) -> BytesN<32> {
@@ -48,8 +54,7 @@ fn compute_hash(
     data.append(&patient_bytes);
     let provider_bytes = provider.clone().to_xdr(env);
     data.append(&provider_bytes);
-    let cid_bytes = ipfs_cid.clone().to_xdr(env);
-    data.append(&cid_bytes);
+    data.append(&Bytes::from(encrypted_ref.content_hash.clone()));
     let type_bytes = record_type.clone().to_xdr(env);
     data.append(&type_bytes);
     data.extend_from_array(&timestamp.to_be_bytes());
@@ -89,11 +94,14 @@ impl HealthRecords {
         env: Env,
         patient: Address,
         provider: Address,
-        ipfs_cid: String,
+        encrypted_ref: EncryptedEnvelopeRef,
         record_type: String,
+        policy: PolicyMetadata,
     ) -> Result<u64, Error> {
         patient.require_auth();
         provider.require_auth();
+        validate_encrypted_ref(&encrypted_ref).map_err(|_| Error::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| Error::InvalidPolicyMetadata)?;
 
         if !has_consent(&env, &patient, &provider) {
             return Err(Error::ConsentNotGranted);
@@ -109,7 +117,7 @@ impl HealthRecords {
             record_id,
             &patient,
             &provider,
-            &ipfs_cid,
+            &encrypted_ref,
             &record_type,
             timestamp,
         );
@@ -118,10 +126,11 @@ impl HealthRecords {
             record_id,
             patient,
             provider,
-            ipfs_cid,
+            encrypted_ref,
             record_type,
             timestamp,
             integrity_hash,
+            policy,
         };
 
         env.storage()
@@ -157,14 +166,11 @@ impl HealthRecords {
     ) -> Result<bool, Error> {
         caller.require_auth();
 
-        let record: MedicalRecord = match env
-            .storage()
-            .persistent()
-            .get(&DataKey::Record(record_id))
-        {
-            Some(r) => r,
-            None => return Ok(false),
-        };
+        let record: MedicalRecord =
+            match env.storage().persistent().get(&DataKey::Record(record_id)) {
+                Some(r) => r,
+                None => return Ok(false),
+            };
 
         if caller != record.patient && !has_consent(&env, &record.patient, &caller) {
             return Err(Error::Unauthorized);
@@ -179,7 +185,7 @@ impl HealthRecords {
             record.record_id,
             &record.patient,
             &record.provider,
-            &record.ipfs_cid,
+            &record.encrypted_ref,
             &record.record_type,
             record.timestamp,
         );
