@@ -718,6 +718,7 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 name = "financial-records"
 version = "0.0.0"
 dependencies = [
+ "shared",
  "soroban-sdk",
 ]
 
@@ -1230,6 +1231,7 @@ name = "patient-registry"
 version = "0.0.0"
 dependencies = [
  "proptest",
+ "shared",
  "soroban-sdk",
  "ttl-config",
 ]

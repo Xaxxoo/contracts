@@ -1,7 +1,8 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, vec, Address, Env, String, Vec,
+use shared::privacy::{
+    validate_encrypted_ref, validate_policy_metadata, EncryptedEnvelopeRef, PolicyMetadata,
 };
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, vec, Address, Env, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -9,6 +10,8 @@ use soroban_sdk::{
 pub enum ContractError {
     AccessDenied = 1,
     RecordNotFound = 2,
+    InvalidEncryptedEnvelope = 3,
+    InvalidPolicyMetadata = 4,
 }
 
 #[contracttype]
@@ -26,9 +29,9 @@ pub enum RecordType {
 pub struct FinancialRecord {
     pub owner: Address,
     pub record_type: RecordType,
-    pub ipfs_hash: String,
+    pub encrypted_ref: EncryptedEnvelopeRef,
     pub timestamp: u64,
-    pub description: String,
+    pub policy: PolicyMetadata,
 }
 
 #[contracttype]
@@ -51,10 +54,13 @@ impl FinancialRecordContract {
         e: Env,
         owner: Address,
         record_type: RecordType,
-        ipfs_hash: String,
-        description: String,
-    ) {
+        encrypted_ref: EncryptedEnvelopeRef,
+        policy: PolicyMetadata,
+    ) -> Result<(), ContractError> {
         owner.require_auth();
+        validate_encrypted_ref(&encrypted_ref)
+            .map_err(|_| ContractError::InvalidEncryptedEnvelope)?;
+        validate_policy_metadata(&policy).map_err(|_| ContractError::InvalidPolicyMetadata)?;
 
         let count: u32 = e
             .storage()
@@ -66,9 +72,9 @@ impl FinancialRecordContract {
         let record = FinancialRecord {
             owner: owner.clone(),
             record_type,
-            ipfs_hash,
+            encrypted_ref,
             timestamp,
-            description,
+            policy,
         };
 
         e.storage()
@@ -104,6 +110,7 @@ impl FinancialRecordContract {
         e.storage()
             .persistent()
             .set(&DataKey::DateCount(owner.clone()), &(date_seq + 1));
+        Ok(())
     }
 
     /// Paginated retrieval of all records. `offset` is the record index to start from.

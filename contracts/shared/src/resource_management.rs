@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contracttype, Address, Env, String};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 /// Job priority levels
 #[contracttype]
@@ -16,8 +16,8 @@ pub enum JobPriority {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResourceQuota {
-    pub cpu_units: u64,      // Estimated CPU cost
-    pub memory_units: u64,   // Estimated memory units
+    pub cpu_units: u64,       // Estimated CPU cost
+    pub memory_units: u64,    // Estimated memory units
     pub timeout_seconds: u64, // Max execution time
 }
 
@@ -47,11 +47,12 @@ pub enum JobState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReportJob {
     pub job_id: u64,
-    pub job_type: String,        // e.g., "adverse_event_report", "quality_metrics"
+    pub job_type: String, // e.g., "adverse_event_report", "quality_metrics"
     pub priority: JobPriority,
     pub requested_by: Address,
     pub quota: ResourceQuota,
-    pub usage: Option<ResourceUsage>,
+    pub usage: ResourceUsage,
+    pub has_usage: bool,
     pub state: JobState,
     pub created_at: u64,
 }
@@ -61,9 +62,9 @@ pub struct ReportJob {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SystemResourceLimits {
     pub max_concurrent_jobs: u32,
-    pub total_cpu_budget: u64,   // Per ledger
+    pub total_cpu_budget: u64,    // Per ledger
     pub total_memory_budget: u64, // Per ledger
-    pub throttle_threshold: u64, // % of budget at which to throttle
+    pub throttle_threshold: u64,  // % of budget at which to throttle
 }
 
 /// Storage keys for resource management
@@ -72,18 +73,18 @@ pub enum ResourceKey {
     Admin,
     JobCounter,
     ReportJob(u64),
-    QueuedJobs,                  // Vec<u64> - IDs of queued jobs
-    RunningJobs,                 // Vec<u64> - IDs of running jobs
+    QueuedJobs,  // Vec<u64> - IDs of queued jobs
+    RunningJobs, // Vec<u64> - IDs of running jobs
     SystemLimits,
-    TotalCpuUsed,                // u64 - cumulative CPU usage this period
-    TotalMemoryUsed,             // u64 - cumulative memory usage this period
-    JobPriority(u64),            // Quick lookup for priority
+    TotalCpuUsed,     // u64 - cumulative CPU usage this period
+    TotalMemoryUsed,  // u64 - cumulative memory usage this period
+    JobPriority(u64), // Quick lookup for priority
 }
 
 /// Default resource quotas by job type
-pub const DEFAULT_CPU_QUOTA: u64 = 1_000_000;    // CPU units
-pub const DEFAULT_MEMORY_QUOTA: u64 = 100_000;   // Memory units
-pub const DEFAULT_TIMEOUT: u64 = 300;            // 5 minutes
+pub const DEFAULT_CPU_QUOTA: u64 = 1_000_000; // CPU units
+pub const DEFAULT_MEMORY_QUOTA: u64 = 100_000; // Memory units
+pub const DEFAULT_TIMEOUT: u64 = 300; // 5 minutes
 
 /// Default system limits
 pub const DEFAULT_MAX_CONCURRENT: u32 = 5;
@@ -141,7 +142,7 @@ pub fn can_accept_job(env: &Env, requested_quota: &ResourceQuota) -> bool {
         .persistent()
         .get(&ResourceKey::RunningJobs)
         .unwrap_or(Vec::new(env));
-    if running.len() >= limits.max_concurrent_jobs as usize {
+    if running.len() >= limits.max_concurrent_jobs {
         return false;
     }
 
@@ -187,7 +188,13 @@ pub fn create_report_job(
         priority: priority.clone(),
         requested_by: requester,
         quota,
-        usage: None,
+        usage: ResourceUsage {
+            cpu_used: 0,
+            memory_used: 0,
+            start_time: 0,
+            end_time: 0,
+        },
+        has_usage: false,
         state: JobState::Queued,
         created_at: env.ledger().timestamp(),
     };
@@ -223,12 +230,13 @@ pub fn start_job(env: &Env, job_id: u64) -> Result<(), ()> {
         .ok_or(())?;
 
     job.state = JobState::Running;
-    job.usage = Some(ResourceUsage {
+    job.usage = ResourceUsage {
         cpu_used: 0,
         memory_used: 0,
         start_time: env.ledger().timestamp(),
         end_time: 0,
-    });
+    };
+    job.has_usage = true;
 
     env.storage()
         .persistent()
@@ -242,7 +250,7 @@ pub fn start_job(env: &Env, job_id: u64) -> Result<(), ()> {
         .unwrap_or(Vec::new(env));
     let mut new_queued = Vec::new(env);
     for i in 0..queued.len() {
-        if let Ok(id) = queued.get(i) {
+        if let Some(id) = queued.get(i) {
             if id != job_id {
                 new_queued.push_back(id);
             }
@@ -274,12 +282,10 @@ pub fn complete_job(env: &Env, job_id: u64, cpu_used: u64, memory_used: u64) -> 
         .ok_or(())?;
 
     job.state = JobState::Completed;
-    if let Some(mut usage) = job.usage {
-        usage.cpu_used = cpu_used;
-        usage.memory_used = memory_used;
-        usage.end_time = env.ledger().timestamp();
-        job.usage = Some(usage);
-    }
+    job.usage.cpu_used = cpu_used;
+    job.usage.memory_used = memory_used;
+    job.usage.end_time = env.ledger().timestamp();
+    job.has_usage = true;
 
     env.storage()
         .persistent()
@@ -312,7 +318,7 @@ pub fn complete_job(env: &Env, job_id: u64, cpu_used: u64, memory_used: u64) -> 
         .unwrap_or(Vec::new(env));
     let mut new_running = Vec::new(env);
     for i in 0..running.len() {
-        if let Ok(id) = running.get(i) {
+        if let Some(id) = running.get(i) {
             if id != job_id {
                 new_running.push_back(id);
             }
@@ -345,7 +351,7 @@ pub fn get_next_job_for_execution(env: &Env) -> Option<u64> {
     let mut best_job: Option<(u64, JobPriority)> = None;
 
     for i in 0..queued.len() {
-        if let Ok(job_id) = queued.get(i) {
+        if let Some(job_id) = queued.get(i) {
             if let Ok(job) = get_job(env, job_id) {
                 if can_accept_job(env, &job.quota) {
                     match &best_job {

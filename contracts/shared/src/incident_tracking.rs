@@ -28,7 +28,7 @@ pub enum EvidenceType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Evidence {
     pub evidence_type: EvidenceType,
-    pub hash: Bytes,           // Hash of evidence content
+    pub hash: Bytes, // Hash of evidence content
     pub recorded_at: u64,
     pub recorded_by: Address,
 }
@@ -39,9 +39,9 @@ pub struct Evidence {
 pub struct Incident {
     pub incident_id: u64,
     pub severity: IncidentSeverity,
-    pub contract: String,      // Which contract experienced the issue
-    pub error_code: u32,       // Standardized error code
-    pub description: String,   // Short description
+    pub contract: String,    // Which contract experienced the issue
+    pub error_code: u32,     // Standardized error code
+    pub description: String, // Short description
     pub reported_at: u64,
     pub reported_by: Address,
     pub evidence_count: u32,
@@ -65,7 +65,7 @@ pub enum IncidentKey {
     IncidentCounter,
     Incident(u64),
     IncidentEvidence(u64, u32),
-    OpenIncidents,           // Vec<u64> - IDs of unresolved incidents
+    OpenIncidents,             // Vec<u64> - IDs of unresolved incidents
     ContractIncidents(String), // Contract-specific incident list
 }
 
@@ -127,9 +127,10 @@ pub fn capture_incident(
         .get(&IncidentKey::ContractIncidents(contract.clone()))
         .unwrap_or(Vec::new(env));
     contract_incidents.push_back(incident_id);
-    env.storage()
-        .persistent()
-        .set(&IncidentKey::ContractIncidents(contract), &contract_incidents);
+    env.storage().persistent().set(
+        &IncidentKey::ContractIncidents(contract),
+        &contract_incidents,
+    );
 
     incident_id
 }
@@ -203,7 +204,7 @@ pub fn resolve_incident(env: &Env, incident_id: u64, resolution_note: String) ->
 
     let mut new_open = Vec::new(env);
     for i in 0..open.len() {
-        if let Ok(id) = open.get(i) {
+        if let Some(id) = open.get(i) {
             if id != incident_id {
                 new_open.push_back(id);
             }

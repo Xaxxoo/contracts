@@ -1,7 +1,24 @@
 #![cfg(test)]
 use super::*;
+use shared::privacy::{EncryptedEnvelopeRef, PolicyMetadata};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::Env;
+use soroban_sdk::{BytesN, Env, String, Symbol};
+
+fn encrypted_ref(env: &Env, seed: u8) -> EncryptedEnvelopeRef {
+    EncryptedEnvelopeRef {
+        content_hash: BytesN::from_array(env, &[seed; 32]),
+        envelope_uri: String::from_str(env, "enc+ipfs://bafyvalidfinancialref"),
+        key_version_id: String::from_str(env, "kv:v01"),
+    }
+}
+
+fn policy(env: &Env) -> PolicyMetadata {
+    PolicyMetadata {
+        retention_class: Symbol::new(env, "financial"),
+        access_policy_hash: BytesN::from_array(env, &[9u8; 32]),
+        purpose: Symbol::new(env, "billing"),
+    }
+}
 
 #[test]
 fn test_add_and_get_records() {
@@ -12,18 +29,18 @@ fn test_add_and_get_records() {
     let client = FinancialRecordContractClient::new(&e, &contract_id);
 
     let owner = Address::generate(&e);
-    let ipfs_hash = String::from_str(&e, "QmXoypizj2Madv6NthR75ce451F33968F9e1XF3D8xS288");
-    let description = String::from_str(&e, "Test Tax Document");
+    let reference = encrypted_ref(&e, 1);
+    let policy = policy(&e);
 
-    client.add_financial_record(&owner, &RecordType::TaxDocument, &ipfs_hash, &description);
+    client.add_financial_record(&owner, &RecordType::TaxDocument, &reference, &policy);
 
     let records = client.get_financial_records(&owner, &owner, &0, &10);
     assert_eq!(records.len(), 1);
     let record = records.get(0).unwrap();
     assert_eq!(record.owner, owner);
     assert_eq!(record.record_type, RecordType::TaxDocument);
-    assert_eq!(record.ipfs_hash, ipfs_hash);
-    assert_eq!(record.description, description);
+    assert_eq!(record.encrypted_ref, reference);
+    assert_eq!(record.policy, policy);
 }
 
 #[test]
@@ -40,8 +57,8 @@ fn test_access_granted() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "hash"),
-        &String::from_str(&e, "desc"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     client.grant_access(&owner, &auditor);
@@ -64,8 +81,8 @@ fn test_unauthorized_access_returns_typed_error() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h"),
-        &String::from_str(&e, "d"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     let result = client.try_get_financial_records(&stranger, &owner, &0, &10);
@@ -86,8 +103,8 @@ fn test_revoked_access_returns_typed_error() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h"),
-        &String::from_str(&e, "d"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     client.grant_access(&owner, &auditor);
@@ -113,24 +130,24 @@ fn test_type_index_filtering() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h1"),
-        &String::from_str(&e, "d1"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     e.ledger().set_timestamp(200);
     client.add_financial_record(
         &owner,
         &RecordType::TaxDocument,
-        &String::from_str(&e, "h2"),
-        &String::from_str(&e, "d2"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     e.ledger().set_timestamp(300);
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h3"),
-        &String::from_str(&e, "d3"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     let invoices = client.get_records_by_type(&owner, &owner, &RecordType::Invoice, &0, &10);
@@ -154,24 +171,24 @@ fn test_date_index_filtering() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h1"),
-        &String::from_str(&e, "d1"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     e.ledger().set_timestamp(200);
     client.add_financial_record(
         &owner,
         &RecordType::TaxDocument,
-        &String::from_str(&e, "h2"),
-        &String::from_str(&e, "d2"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     e.ledger().set_timestamp(300);
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h3"),
-        &String::from_str(&e, "d3"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     let range = client.get_records_by_date_range(&owner, &owner, &150, &250, &0, &10);
@@ -193,8 +210,8 @@ fn test_pagination_get_financial_records() {
         client.add_financial_record(
             &owner,
             &RecordType::Receipt,
-            &String::from_str(&e, "h"),
-            &String::from_str(&e, "d"),
+            &encrypted_ref(&e, 2),
+            &policy(&e),
         );
         let _ = i;
     }
@@ -220,8 +237,8 @@ fn test_pagination_get_records_by_type() {
         client.add_financial_record(
             &owner,
             &RecordType::Receipt,
-            &String::from_str(&e, "h"),
-            &String::from_str(&e, "d"),
+            &encrypted_ref(&e, 2),
+            &policy(&e),
         );
     }
 
@@ -246,8 +263,8 @@ fn test_type_index_unauthorized_returns_typed_error() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h"),
-        &String::from_str(&e, "d"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     let result = client.try_get_records_by_type(&stranger, &owner, &RecordType::Invoice, &0, &10);
@@ -268,8 +285,8 @@ fn test_date_index_unauthorized_returns_typed_error() {
     client.add_financial_record(
         &owner,
         &RecordType::Invoice,
-        &String::from_str(&e, "h"),
-        &String::from_str(&e, "d"),
+        &encrypted_ref(&e, 2),
+        &policy(&e),
     );
 
     let result = client.try_get_records_by_date_range(&stranger, &owner, &0, &999, &0, &10);

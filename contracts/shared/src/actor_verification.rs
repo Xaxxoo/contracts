@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contracttype, Address, Env, Symbol};
+use soroban_sdk::{contracttype, Address, Env};
 
 /// Actor types for verification
 #[contracttype]
@@ -34,7 +34,11 @@ pub const CACHE_DURATION: u64 = 86400;
 pub fn verify_actor(env: &Env, actor_type: ActorType, address: &Address) -> bool {
     // Check cache first
     let cache_key = VerificationKey::Cache(actor_type.clone(), address.clone());
-    if let Some(cache) = env.storage().temporary().get(&cache_key) {
+    if let Some(cache) = env
+        .storage()
+        .temporary()
+        .get::<VerificationKey, VerificationCache>(&cache_key)
+    {
         if env.ledger().timestamp() < cache.expires_at {
             return cache.verified;
         }
@@ -58,7 +62,7 @@ pub fn verify_actor(env: &Env, actor_type: ActorType, address: &Address) -> bool
     verified
 }
 
-fn verify_patient(env: &Env, address: &Address) -> bool {
+fn verify_patient(_env: &Env, _address: &Address) -> bool {
     // Cross-contract call to patient-registry
     // For now, we'll assume the contract addresses are known or passed
     // In a real implementation, this would use contract.invoke()
@@ -67,17 +71,17 @@ fn verify_patient(env: &Env, address: &Address) -> bool {
     true // TODO: Implement actual cross-contract call
 }
 
-fn verify_provider(env: &Env, address: &Address) -> bool {
+fn verify_provider(_env: &Env, _address: &Address) -> bool {
     // Cross-contract call to provider-registry
     true // TODO: Implement actual cross-contract call
 }
 
-fn verify_hospital(env: &Env, address: &Address) -> bool {
+fn verify_hospital(_env: &Env, _address: &Address) -> bool {
     // Cross-contract call to hospital-registry
     true // TODO: Implement actual cross-contract call
 }
 
-fn verify_insurer(env: &Env, address: &Address) -> bool {
+fn verify_insurer(_env: &Env, _address: &Address) -> bool {
     // Cross-contract call to insurer-registry
     true // TODO: Implement actual cross-contract call
 }
