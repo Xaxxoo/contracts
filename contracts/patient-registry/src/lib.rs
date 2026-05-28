@@ -1750,6 +1750,16 @@ impl MedicalRegistry {
 
         let token: BytesN<32> = env.crypto().sha256(&preimage).into();
 
+        // Reject duplicate tokens — prevents a nonce collision from silently
+        // overwriting an active link and granting unintended access.
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::ShareLink(token.clone()))
+        {
+            return Err(ContractError::AlreadyExists);
+        }
+
         let link = ShareLinkData {
             patient: patient.clone(),
             record_id,

@@ -576,6 +576,9 @@ impl UpgradeGovernance {
             _ => {}
         }
         if env.ledger().timestamp() > proposal.proposed_at + VOTING_WINDOW {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Proposal(proposal_id));
             return Err(Error::Expired);
         }
         Ok(proposal)

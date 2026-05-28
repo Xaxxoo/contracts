@@ -59,11 +59,13 @@ impl LabManagementContract {
         req: OrderRequest,
     ) -> u64 {
         provider_id.require_auth();
-        let id = env
+        let counter_key = Symbol::new(&env, "LAB_ID");
+        let id: u64 = env
             .storage()
             .instance()
-            .get::<_, u64>(&Symbol::new(&env, "LAB_ID"))
+            .get::<_, u64>(&counter_key)
             .unwrap_or(0);
+        env.storage().instance().set(&counter_key, &(id + 1));
 
         let order = LabOrder {
             provider_id,
@@ -76,9 +78,6 @@ impl LabManagementContract {
         };
 
         env.storage().persistent().set(&id, &order);
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "LAB_ID"), &(id + 1));
         id
     }
 

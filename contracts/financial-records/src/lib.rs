@@ -135,8 +135,11 @@ impl FinancialRecordContract {
             if let Some(record) = e
                 .storage()
                 .persistent()
-                .get(&DataKey::Record(owner.clone(), i))
+                .get::<DataKey, FinancialRecord>(&DataKey::Record(owner.clone(), i))
             {
+                if record.owner != owner {
+                    return Err(ContractError::AccessDenied);
+                }
                 records.push_back(record);
             }
         }
@@ -181,6 +184,9 @@ impl FinancialRecordContract {
                 Some(r) => r,
                 None => continue,
             };
+            if record.owner != owner {
+                return Err(ContractError::AccessDenied);
+            }
             if record.timestamp >= start && record.timestamp <= end {
                 if skipped < offset {
                     skipped += 1;
@@ -229,8 +235,11 @@ impl FinancialRecordContract {
             if let Some(record) = e
                 .storage()
                 .persistent()
-                .get(&DataKey::Record(owner.clone(), record_idx))
+                .get::<DataKey, FinancialRecord>(&DataKey::Record(owner.clone(), record_idx))
             {
+                if record.owner != owner {
+                    return Err(ContractError::AccessDenied);
+                }
                 records.push_back(record);
             }
         }
