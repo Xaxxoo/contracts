@@ -15,6 +15,8 @@ pub enum ContractError {
     HospitalConfigNotFound = 3,
     CredentialExpired = 4,
     CredentialRevoked = 5,
+    /// An empty vector was passed for a field that previously had values
+    EmptyFieldUpdate = 6,
 }
 
 #[contracttype]
@@ -275,6 +277,9 @@ impl HospitalRegistry {
         wallet.require_auth();
         Self::assert_active_hospital(&env, &wallet)?;
         let mut config = Self::get_hospital_config(env.clone(), wallet.clone())?;
+        if departments.is_empty() && !config.departments.is_empty() {
+            return Err(ContractError::EmptyFieldUpdate);
+        }
         config.departments = departments;
         env.storage()
             .persistent()
@@ -292,6 +297,9 @@ impl HospitalRegistry {
         wallet.require_auth();
         Self::assert_active_hospital(&env, &wallet)?;
         let mut config = Self::get_hospital_config(env.clone(), wallet.clone())?;
+        if locations.is_empty() && !config.locations.is_empty() {
+            return Err(ContractError::EmptyFieldUpdate);
+        }
         config.locations = locations;
         env.storage()
             .persistent()
@@ -309,6 +317,9 @@ impl HospitalRegistry {
         wallet.require_auth();
         Self::assert_active_hospital(&env, &wallet)?;
         let mut config = Self::get_hospital_config(env.clone(), wallet.clone())?;
+        if equipment.is_empty() && !config.equipment.is_empty() {
+            return Err(ContractError::EmptyFieldUpdate);
+        }
         config.equipment = equipment;
         env.storage()
             .persistent()

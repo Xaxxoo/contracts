@@ -31,6 +31,8 @@ pub enum Error {
     ProposalAlreadyFinalized = 20,
     /// valid_until must be in the future and within MAX_VALIDITY_WINDOW_SECS of issue time
     InvalidValidityWindow = 21,
+    /// Timestamp arithmetic would overflow u64
+    TimestampOverflow = 22,
 }
 
 #[contracttype]
@@ -973,7 +975,11 @@ impl PrescriptionContract {
         p.last_dispensed = None;
 
         // Extend validity if needed (30 days from refill)
-        let new_valid_until = env.ledger().timestamp() + (30 * 24 * 60 * 60); // 30 days in seconds
+        let new_valid_until = env
+            .ledger()
+            .timestamp()
+            .checked_add(30 * 24 * 60 * 60)
+            .ok_or(Error::TimestampOverflow)?;
         if new_valid_until > p.valid_until {
             p.valid_until = new_valid_until;
         }

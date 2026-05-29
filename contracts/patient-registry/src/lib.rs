@@ -1929,6 +1929,15 @@ impl MedicalRegistry {
             .extend_ttl(&idx_key, LEDGER_THRESHOLD, LEDGER_BUMP_AMOUNT);
         // ─────────────────────────────────────────────────────────────────────
 
+        // Recompute Merkle root so outstanding proofs against the old root are invalidated.
+        let ids_key = DataKey::PatientRecordIds(patient.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&ids_key)
+            .unwrap_or(Vec::new(&env));
+        Self::update_merkle_root(&env, &patient, &ids);
+
         env.events().publish(
             (symbol_short!("rec_del"), patient),
             (record_id, env.ledger().timestamp()),
