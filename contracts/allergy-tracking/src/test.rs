@@ -827,3 +827,281 @@ fn test_include_deleted_requires_admin() {
     assert_eq!(admin_view.len(), 1);
     assert!(admin_view.get(0).unwrap().is_deleted);
 }
+
+// ==================== BATCH RECORD ALLERGIES TESTS ====================
+
+fn make_entry(
+    env: &Env,
+    allergen: &str,
+    allergen_type: &str,
+    reactions: &[&str],
+    severity: &str,
+    onset_date: Option<u64>,
+    verified: bool,
+) -> AllergyEntry {
+    let mut reaction_types = Vec::new(env);
+    for r in reactions {
+        reaction_types.push_back(String::from_str(env, r));
+    }
+    AllergyEntry {
+        allergen: String::from_str(env, allergen),
+        allergen_type: Symbol::new(env, allergen_type),
+        reaction_types,
+        severity: Symbol::new(env, severity),
+        onset_date,
+        verified,
+    }
+}
+
+#[test]
+fn test_batch_record_allergies_success() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(
+        &env,
+        "Penicillin",
+        "medication",
+        &["rash", "hives"],
+        "moderate",
+        Some(1000),
+        true,
+    ));
+    entries.push_back(make_entry(
+        &env,
+        "Peanuts",
+        "food",
+        &["anaphylaxis"],
+        "life_threatening",
+        None,
+        true,
+    ));
+    entries.push_back(make_entry(
+        &env,
+        "Pollen",
+        "environmental",
+        &["sneezing"],
+        "mild",
+        Some(2000),
+        false,
+    ));
+
+    let ids = client.batch_record_allergies(&patient, &provider, &entries);
+
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids.get(0).unwrap(), 0);
+    assert_eq!(ids.get(1).unwrap(), 1);
+    assert_eq!(ids.get(2).unwrap(), 2);
+
+    // Verify each record was stored correctly
+    let rec0 = client.get_allergy(&0);
+    assert_eq!(rec0.allergen, String::from_str(&env, "Penicillin"));
+    assert_eq!(rec0.severity, Severity::Moderate);
+    assert_eq!(rec0.status, AllergyStatus::Active);
+
+    let rec1 = client.get_allergy(&1);
+    assert_eq!(rec1.allergen, String::from_str(&env, "Peanuts"));
+    assert_eq!(rec1.severity, Severity::LifeThreatening);
+
+    // verified=false → Suspected
+    let rec2 = client.get_allergy(&2);
+    assert_eq!(rec2.status, AllergyStatus::Suspected);
+}
+
+#[test]
+fn test_batch_record_allergies_ids_continue_from_counter() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    // Pre-record one allergy via the single-record path
+    let mut reactions = Vec::new(&env);
+    reactions.push_back(String::from_str(&env, "rash"));
+    let single_id = client.record_allergy(
+        &patient,
+        &provider,
+        &String::from_str(&env, "Aspirin"),
+        &Symbol::new(&env, "medication"),
+        &reactions,
+        &Symbol::new(&env, "mild"),
+        &None,
+        &true,
+    );
+    assert_eq!(single_id, 0);
+
+    // Batch should start from ID 1
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Latex", "other", &["itching"], "mild", None, true));
+    entries.push_back(make_entry(&env, "Pollen", "environmental", &["sneezing"], "mild", None, true));
+
+    let ids = client.batch_record_allergies(&patient, &provider, &entries);
+    assert_eq!(ids.get(0).unwrap(), 1);
+    assert_eq!(ids.get(1).unwrap(), 2);
+}
+
+#[test]
+fn test_batch_record_allergies_emits_events_per_entry() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "DrugA", "medication", &["rash"], "mild", None, true));
+    entries.push_back(make_entry(&env, "DrugB", "medication", &["hives"], "moderate", None, true));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+
+    // Exactly one event per allergy entry should have been emitted
+    use soroban_sdk::testutils::Events;
+    assert_eq!(env.events().all().len(), 2);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")] // BatchEmpty = 13
+fn test_batch_record_allergies_empty_batch_rejected() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let entries: Vec<AllergyEntry> = Vec::new(&env);
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")] // BatchTooLarge = 14
+fn test_batch_record_allergies_too_large_rejected() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    // Build 51 distinct allergen names using a static list of prefixes + numeric suffix
+    // (no std::format! available in no_std — build names via repeated chars)
+    let names: [&str; 51] = [
+        "A1","A2","A3","A4","A5","A6","A7","A8","A9","A10",
+        "B1","B2","B3","B4","B5","B6","B7","B8","B9","B10",
+        "C1","C2","C3","C4","C5","C6","C7","C8","C9","C10",
+        "D1","D2","D3","D4","D5","D6","D7","D8","D9","D10",
+        "E1","E2","E3","E4","E5","E6","E7","E8","E9","E10",
+        "F1",
+    ];
+
+    let mut entries = Vec::new(&env);
+    for name in names.iter() {
+        entries.push_back(make_entry(&env, name, "medication", &["reaction"], "mild", None, true));
+    }
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")] // DuplicateAllergy = 7
+fn test_batch_record_allergies_intra_batch_duplicate_rejected() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["rash"], "mild", None, true));
+    // Same allergen twice in the same batch
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["hives"], "moderate", None, true));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")] // DuplicateAllergy = 7
+fn test_batch_record_allergies_cross_existing_duplicate_rejected() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    // Record one allergy via single path first
+    let mut reactions = Vec::new(&env);
+    reactions.push_back(String::from_str(&env, "rash"));
+    client.record_allergy(
+        &patient,
+        &provider,
+        &String::from_str(&env, "Penicillin"),
+        &Symbol::new(&env, "medication"),
+        &reactions,
+        &Symbol::new(&env, "mild"),
+        &None,
+        &true,
+    );
+
+    // Batch includes the same allergen
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["hives"], "moderate", None, true));
+    entries.push_back(make_entry(&env, "Aspirin", "medication", &["nausea"], "mild", None, true));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")] // InvalidSeverity = 3
+fn test_batch_record_allergies_invalid_severity_rejects_whole_batch() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["rash"], "mild", None, true));
+    // Second entry has bad severity — whole batch must be rejected
+    entries.push_back(make_entry(&env, "Aspirin", "medication", &["nausea"], "critical", None, true));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")] // InvalidAllergenType = 4
+fn test_batch_record_allergies_invalid_allergen_type_rejects_whole_batch() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["rash"], "mild", None, true));
+    entries.push_back(make_entry(&env, "Pollen", "bad_type", &["sneezing"], "mild", None, true));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+}
+
+#[test]
+fn test_batch_record_allergies_no_partial_writes_on_validation_failure() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "Penicillin", "medication", &["rash"], "mild", None, true));
+    // Invalid entry — triggers validation failure
+    entries.push_back(make_entry(&env, "Aspirin", "medication", &["nausea"], "critical", None, true));
+
+    let result = client.try_batch_record_allergies(&patient, &provider, &entries);
+    assert!(result.is_err());
+
+    // Nothing should have been written — Penicillin must not exist
+    let active = client.get_active_allergies(&patient, &provider);
+    assert_eq!(active.len(), 0);
+}
+
+#[test]
+fn test_batch_record_allergies_get_active_allergies_includes_batch_records() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "DrugA", "medication", &["rash"], "mild", None, true));
+    entries.push_back(make_entry(&env, "DrugB", "medication", &["hives"], "moderate", None, true));
+    // verified=false → Suspected, should NOT appear in get_active_allergies
+    entries.push_back(make_entry(&env, "DrugC", "medication", &["nausea"], "mild", None, false));
+
+    client.batch_record_allergies(&patient, &provider, &entries);
+
+    let active = client.get_active_allergies(&patient, &provider);
+    assert_eq!(active.len(), 2);
+}
+
+#[test]
+fn test_batch_record_allergies_allergens_are_trimmed() {
+    let (env, contract_id, patient, provider, _) = create_test_env();
+    let client = AllergyTrackingContractClient::new(&env, &contract_id);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(make_entry(&env, "  Penicillin\t", "medication", &["rash"], "mild", None, true));
+
+    let ids = client.batch_record_allergies(&patient, &provider, &entries);
+    let rec = client.get_allergy(&ids.get(0).unwrap());
+    assert_eq!(rec.allergen, String::from_str(&env, "Penicillin"));
+}
