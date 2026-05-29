@@ -387,7 +387,8 @@ impl AllergyManagement {
 
         for allergy_id in allergy_ids.iter() {
             if let Ok(allergy) = storage::get_allergy(&env, allergy_id) {
-                if allergy.status == AllergyStatus::Active {
+                // Only process allergies with Active status (exclude Resolved, Archived, Deleted)
+                if allergy.status.is_active() {
                     // Check for medication allergies
                     if allergy.allergen_type == symbol_short!("med") {
                         // Direct match or cross-sensitivity check
@@ -440,7 +441,7 @@ impl AllergyManagement {
 
         for allergy_id in allergy_ids.iter() {
             if let Ok(allergy) = storage::get_allergy(&env, allergy_id) {
-                if allergy.status == AllergyStatus::Active {
+                if allergy.status.is_active() {
                     active_allergies.push_back(allergy);
                 }
             }

@@ -78,7 +78,7 @@ pub fn check_duplicate_allergy(
         if let Ok(allergy) = get_allergy(env, allergy_id) {
             if allergy.allergen == *allergen
                 && allergy.allergen_type == *allergen_type
-                && allergy.status == crate::AllergyStatus::Active
+                && allergy.status.is_active()
             {
                 return true;
             }

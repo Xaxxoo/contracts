@@ -6,6 +6,15 @@ use soroban_sdk::{contracttype, Address, String, Symbol, Vec};
 pub enum AllergyStatus {
     Active,
     Resolved,
+    Archived,
+    Deleted,
+}
+
+impl AllergyStatus {
+    /// Check if the allergy status is active (should be considered in drug interaction checks)
+    pub fn is_active(&self) -> bool {
+        matches!(self, AllergyStatus::Active)
+    }
 }
 
 /// Parameters for recording a new allergy
