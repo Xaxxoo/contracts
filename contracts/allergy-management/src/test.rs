@@ -1,10 +1,36 @@
 #![cfg(test)]
 
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{symbol_short, testutils::Address as _, testutils::Ledger, Address, BytesN, Env, String, Symbol, Vec};
 
 use crate::{
     AllergyManagement, AllergyManagementClient, AllergyStatus, Error, RecordAllergyRequest,
 };
+use provider_registry::{ProviderRegistry, ProviderRegistryClient};
+
+fn dummy_hash(env: &Env, byte: u8) -> BytesN<32> {
+    BytesN::from_array(env, &[byte; 32])
+}
+
+fn register_provider_in_registry(
+    env: &Env,
+    client: &ProviderRegistryClient<'_>,
+    admin: &Address,
+    provider: &Address,
+) {
+    let issuer = Address::generate(env);
+    client.register_provider(
+        admin,
+        provider,
+        &String::from_str(env, "Dr. Smith"),
+        &String::from_str(env, "General"),
+        &String::from_str(env, "LIC-001"),
+        &dummy_hash(env, 1),
+        &issuer,
+        &dummy_hash(env, 2),
+        &u64::MAX,
+        &dummy_hash(env, 3),
+    );
+}
 
 fn create_test_env() -> (
     Env,
@@ -15,15 +41,33 @@ fn create_test_env() -> (
 ) {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().set_timestamp(2000);
 
     let admin = Address::generate(&env);
     let patient = Address::generate(&env);
     let provider = Address::generate(&env);
 
+    // Set up provider-registry contract
+    let provider_registry_id = env.register(ProviderRegistry, ());
+    let provider_registry_client = ProviderRegistryClient::new(&env, &provider_registry_id);
+    provider_registry_client.initialize(&admin);
+    register_provider_in_registry(&env, &provider_registry_client, &admin, &provider);
+
+    // Generate dummy addresses for other registries
+    let patient_registry = Address::generate(&env);
+    let hospital_registry = Address::generate(&env);
+    let insurer_registry = Address::generate(&env);
+
     let contract_id = env.register(AllergyManagement, ());
     let client = AllergyManagementClient::new(&env, &contract_id);
 
-    client.initialize(&admin);
+    client.initialize(
+        &admin,
+        &patient_registry,
+        &provider_registry_id,
+        &hospital_registry,
+        &insurer_registry,
+    );
 
     (env, admin, patient, provider, client)
 }
@@ -57,10 +101,14 @@ fn test_initialize() {
 
 #[test]
 fn test_double_initialize() {
-    let (_, admin, _, _, client) = create_test_env();
+    let (env, admin, _, _, client) = create_test_env();
 
-    // Try to initialize again
-    let result = client.try_initialize(&admin);
+    // Try to initialize again — need all registry addresses
+    let patient_registry = Address::generate(&env);
+    let provider_registry = Address::generate(&env);
+    let hospital_registry = Address::generate(&env);
+    let insurer_registry = Address::generate(&env);
+    let result = client.try_initialize(&admin, &patient_registry, &provider_registry, &hospital_registry, &insurer_registry);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
