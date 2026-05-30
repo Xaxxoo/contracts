@@ -24,6 +24,8 @@ pub enum Error {
     InvalidTimestamp = 10,
     ReasonTooLong = 11,
     AlreadyDeleted = 12,
+    BatchEmpty = 13,
+    BatchTooLarge = 14,
 }
 
 /// Allergen types supported by the system
@@ -109,11 +111,25 @@ pub enum DataKey {
     DrugCrossSensitivity(String),
 }
 
+/// A single entry in a batch allergy recording request.
+/// Mirrors the per-allergy parameters of `record_allergy`, scoped to one patient.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AllergyEntry {
+    pub allergen: String,
+    pub allergen_type: Symbol,
+    pub reaction_types: Vec<String>,
+    pub severity: Symbol,
+    pub onset_date: Option<u64>,
+    pub verified: bool,
+}
+
 // Validation constants
 const MAX_ALLERGEN_LENGTH: u32 = 100;
 const MIN_ALLERGEN_LENGTH: u32 = 1;
 const MAX_REASON_LENGTH: u32 = 500;
 const MAX_REACTION_LENGTH: u32 = 200;
+const MAX_BATCH_SIZE: u32 = 50;
 
 #[contract]
 pub struct AllergyTrackingContract;
@@ -235,6 +251,163 @@ impl AllergyTrackingContract {
             .publish((symbol_short!("allergy"), patient_id, allergy_id), allergen);
 
         Ok(allergy_id)
+    }
+
+    /// Record multiple allergies for a single patient in one contract invocation.
+    ///
+    /// All entries are validated before any state is written (fail-fast). If any
+    /// entry fails validation the entire batch is rejected and no records are stored.
+    /// On success, one `"allergy"` event is emitted per recorded allergy, matching
+    /// the event shape produced by `record_allergy`.
+    ///
+    /// Returns a `Vec<u64>` of the newly assigned allergy IDs in input order.
+    pub fn batch_record_allergies(
+        env: Env,
+        patient_id: Address,
+        provider_id: Address,
+        entries: Vec<AllergyEntry>,
+    ) -> Result<Vec<u64>, Error> {
+        provider_id.require_auth();
+
+        // Guard: empty batch
+        if entries.is_empty() {
+            return Err(Error::BatchEmpty);
+        }
+
+        // Guard: batch size cap (prevents runaway gas consumption)
+        if entries.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // ── Phase 1: validate every entry and resolve enums ──────────────────
+        // We collect the resolved data so we don't repeat symbol parsing during
+        // the write phase.
+        let mut resolved: Vec<(String, AllergenType, Vec<String>, Severity, Option<u64>, bool)> =
+            Vec::new(&env);
+
+        for entry in entries.iter() {
+            let allergen = Self::trim_allergen(&entry.allergen);
+            Self::validate_allergen(&allergen)?;
+            Self::validate_reaction_types(&entry.reaction_types)?;
+            Self::validate_timestamp(&env, entry.onset_date)?;
+
+            let allergen_type_enum = Self::symbol_to_allergen_type(&env, &entry.allergen_type)?;
+            let severity_enum = Self::symbol_to_severity(&env, &entry.severity)?;
+
+            resolved.push_back((
+                allergen,
+                allergen_type_enum,
+                entry.reaction_types.clone(),
+                severity_enum,
+                entry.onset_date,
+                entry.verified,
+            ));
+        }
+
+        // ── Phase 2: duplicate check across existing records AND within batch ─
+        let patient_key = DataKey::PatientAllergies(patient_id.clone());
+        let existing_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&patient_key)
+            .unwrap_or(Vec::new(&env));
+
+        // Build a set of active allergen names already on-chain for this patient.
+        let mut active_allergens: Vec<String> = Vec::new(&env);
+        for id in existing_ids.iter() {
+            let Some(rec) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, AllergyRecord>(&DataKey::Allergy(id))
+            else {
+                continue;
+            };
+            if !rec.is_deleted && rec.status != AllergyStatus::Resolved {
+                active_allergens.push_back(rec.allergen);
+            }
+        }
+
+        // Check each resolved entry against existing records and prior entries in
+        // this same batch (intra-batch duplicate prevention).
+        let mut batch_allergens: Vec<String> = Vec::new(&env);
+        for item in resolved.iter() {
+            let allergen = item.0.clone();
+            if Self::vec_contains(&active_allergens, &allergen)
+                || Self::vec_contains(&batch_allergens, &allergen)
+            {
+                return Err(Error::DuplicateAllergy);
+            }
+            batch_allergens.push_back(allergen);
+        }
+
+        // ── Phase 3: write all records ────────────────────────────────────────
+        let mut allergy_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllergyCounter)
+            .unwrap_or(0u64);
+
+        let current_time = env.ledger().timestamp();
+
+        let mut patient_allergy_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&patient_key)
+            .unwrap_or(Vec::new(&env));
+
+        let mut new_ids: Vec<u64> = Vec::new(&env);
+
+        for item in resolved.iter() {
+            let (allergen, allergen_type_enum, reaction_types, severity_enum, onset_date, verified) =
+                item;
+
+            let allergy = AllergyRecord {
+                allergy_id: allergy_counter,
+                patient_id: patient_id.clone(),
+                provider_id: provider_id.clone(),
+                allergen: allergen.clone(),
+                allergen_type: allergen_type_enum,
+                reaction_types,
+                severity: severity_enum,
+                onset_date,
+                verified,
+                status: if verified {
+                    AllergyStatus::Active
+                } else {
+                    AllergyStatus::Suspected
+                },
+                recorded_date: current_time,
+                last_updated: current_time,
+                resolution_date: None,
+                resolution_reason: None,
+                is_deleted: false,
+            };
+
+            env.storage()
+                .persistent()
+                .set(&DataKey::Allergy(allergy_counter), &allergy);
+
+            patient_allergy_ids.push_back(allergy_counter);
+            new_ids.push_back(allergy_counter);
+
+            // Emit one event per allergy — same shape as record_allergy
+            env.events().publish(
+                (symbol_short!("allergy"), patient_id.clone(), allergy_counter),
+                allergen,
+            );
+
+            allergy_counter += 1;
+        }
+
+        // Persist updated patient index and counter in one pass
+        env.storage()
+            .persistent()
+            .set(&patient_key, &patient_allergy_ids);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllergyCounter, &allergy_counter);
+
+        Ok(new_ids)
     }
 
     /// Update the severity of an existing allergy

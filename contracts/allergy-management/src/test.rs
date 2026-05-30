@@ -5,6 +5,32 @@ use soroban_sdk::{symbol_short, testutils::{Address as _, Ledger}, Address, Env,
 use crate::{
     AllergyManagement, AllergyManagementClient, AllergyStatus, Error, RecordAllergyRequest,
 };
+use provider_registry::{ProviderRegistry, ProviderRegistryClient};
+
+fn dummy_hash(env: &Env, byte: u8) -> BytesN<32> {
+    BytesN::from_array(env, &[byte; 32])
+}
+
+fn register_provider_in_registry(
+    env: &Env,
+    client: &ProviderRegistryClient<'_>,
+    admin: &Address,
+    provider: &Address,
+) {
+    let issuer = Address::generate(env);
+    client.register_provider(
+        admin,
+        provider,
+        &String::from_str(env, "Dr. Smith"),
+        &String::from_str(env, "General"),
+        &String::from_str(env, "LIC-001"),
+        &dummy_hash(env, 1),
+        &issuer,
+        &dummy_hash(env, 2),
+        &u64::MAX,
+        &dummy_hash(env, 3),
+    );
+}
 
 fn create_test_env() -> (
     Env,
@@ -21,6 +47,17 @@ fn create_test_env() -> (
     let admin = Address::generate(&env);
     let patient = Address::generate(&env);
     let provider = Address::generate(&env);
+
+    // Set up provider-registry contract
+    let provider_registry_id = env.register(ProviderRegistry, ());
+    let provider_registry_client = ProviderRegistryClient::new(&env, &provider_registry_id);
+    provider_registry_client.initialize(&admin);
+    register_provider_in_registry(&env, &provider_registry_client, &admin, &provider);
+
+    // Generate dummy addresses for other registries
+    let patient_registry = Address::generate(&env);
+    let hospital_registry = Address::generate(&env);
+    let insurer_registry = Address::generate(&env);
 
     let contract_id = env.register(AllergyManagement, ());
     let client = AllergyManagementClient::new(&env, &contract_id);

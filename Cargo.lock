@@ -33,6 +33,7 @@ dependencies = [
 name = "allergy-management"
 version = "0.1.0"
 dependencies = [
+ "provider-registry",
  "shared",
  "soroban-sdk",
  "ttl-config",

@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, symbol_short, Address, Bytes, Env,
-    String, Symbol, Vec,
+    contract, contracterror, contractevent, contractimpl, symbol_short, vec, Address, Bytes, Env,
+    IntoVal, String, Symbol, Vec,
 };
 use shared::{events::EVENT_VERSION, temporal, incident_tracking};
 
@@ -175,12 +175,9 @@ impl AllergyManagement {
 
     /// Check if an address is a registered provider
     fn is_registered_provider(env: &Env, provider_id: &Address) -> bool {
-        // In a real implementation, this would invoke the provider registry contract
-        // For now, return true as placeholder
-        // let provider_registry: Address = env.storage().instance().get(&DataKey::ProviderRegistry).unwrap();
-        // let result: bool = env.invoke_contract(&provider_registry, &symbol_short!("is_provider"), (provider_id.clone(),));
-        // result
-        true
+        let provider_registry: Address = env.storage().instance().get(&DataKey::ProviderRegistry).unwrap();
+        let args = vec![&env, provider_id.clone().into_val(env)];
+        env.invoke_contract(&provider_registry, &Symbol::new(env, "is_provider"), args)
     }
 
     /// Capture an incident for troubleshooting (structured evidence capture)

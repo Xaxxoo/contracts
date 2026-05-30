@@ -1,5 +1,7 @@
 # Incident Tracking & Resource Management Implementation
 
+> Status: Implemented — closes #451, closes #457
+
 ## Overview
 This document describes the implementation of two critical healthcare system features:
 - **Structured Evidence Capture** for troubleshooting severe incidents

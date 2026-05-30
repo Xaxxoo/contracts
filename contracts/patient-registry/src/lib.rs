@@ -226,6 +226,7 @@ pub enum ContractError {
     UnauthorizedInstitution = 20,
     InvalidEncryptedEnvelope = 21,
     InvalidPolicyMetadata = 22,
+    InvalidPagination = 23,
 }
 
 pub fn validate_cid(cid: &Bytes) -> Result<(), ContractError> {
@@ -384,6 +385,21 @@ fn build_partial_record(record_data: &RecordData, mask: u32) -> PartialRecord {
             None
         },
     }
+}
+
+/// Maximum number of records that may be returned in a single paginated call.
+pub const MAX_PAGE_SIZE: u32 = 50;
+
+/// Return type for `get_medical_records_paged`.
+///
+/// `total` is the total number of records stored for the patient (excluding
+/// nothing — callers use it to determine whether more pages exist).
+/// `records` contains at most `limit` entries starting at `offset`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PagedRecords {
+    pub records: Vec<MedicalRecord>,
+    pub total: u32,
 }
 
 #[contract]
@@ -1324,8 +1340,99 @@ impl MedicalRegistry {
             .unwrap_or(Vec::new(&env)))
     }
 
-    pub fn get_latest_record(
+    /// Paginated variant of `get_medical_records`.
+    ///
+    /// Returns up to `limit` records starting at `offset` (0-based) together
+    /// with the patient's total record count so callers can page through all
+    /// records without loading the entire list in one call.
+    ///
+    /// # Constraints
+    /// - `limit` must be in `1..=MAX_PAGE_SIZE` (50). Returns
+    ///   `InvalidPagination` otherwise.
+    /// - `offset` beyond the end of the list is not an error — it returns an
+    ///   empty `records` vec with the correct `total`.
+    ///
+    /// # Access control
+    /// Same as `get_medical_records`: patient, guardian, or authorized doctor.
+    pub fn get_medical_records_paged(
         env: Env,
+        patient: Address,
+        caller: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Result<PagedRecords, ContractError> {
+        // ── Validate pagination params ────────────────────────────────────────
+        if limit == 0 || limit > MAX_PAGE_SIZE {
+            return Err(ContractError::InvalidPagination);
+        }
+
+        // ── Access control (mirrors get_medical_records) ──────────────────────
+        let patient_key = DataKey::Patient(patient.clone());
+        if let Some(data) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, PatientData>(&patient_key)
+        {
+            if data.status == PatientStatus::Deregistered {
+                let admin: Address = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::Admin)
+                    .ok_or(ContractError::NotFound)?;
+                if caller != admin {
+                    return Err(ContractError::NotAuthorized);
+                }
+                caller.require_auth();
+            } else {
+                require_record_access(&env, &patient, &caller)?;
+            }
+        } else {
+            require_record_access(&env, &patient, &caller)?;
+        }
+
+        // ── Load full list (single persistent read) ───────────────────────────
+        let key = DataKey::MedicalRecords(patient.clone());
+
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP_AMOUNT);
+        }
+        if env.storage().persistent().has(&patient_key) {
+            env.storage().persistent().extend_ttl(
+                &patient_key,
+                LEDGER_THRESHOLD,
+                LEDGER_BUMP_AMOUNT,
+            );
+        }
+
+        let all_records: Vec<MedicalRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+
+        let total = all_records.len();
+
+        // ── Slice [offset, offset+limit) ──────────────────────────────────────
+        let mut page: Vec<MedicalRecord> = Vec::new(&env);
+
+        if offset < total {
+            let end = (offset + limit).min(total);
+            for i in offset..end {
+                if let Some(record) = all_records.get(i) {
+                    page.push_back(record);
+                }
+            }
+        }
+
+        Ok(PagedRecords {
+            records: page,
+            total,
+        })
+    }
+
+    pub fn get_latest_record(        env: Env,
         patient: Address,
         caller: Address,
     ) -> Result<MedicalRecord, ContractError> {
