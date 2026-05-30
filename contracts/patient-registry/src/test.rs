@@ -3571,3 +3571,158 @@ fn test_verify_membership_patient_with_no_records_returns_false() {
     let proof: Vec<BytesN<32>> = Vec::new(&env);
     assert!(!client.verify_record_membership(&patient, &1, &proof));
 }
+
+// ─── Issue #326 ── Type-index consistency after multiple soft deletes ──────
+
+#[test]
+fn test_type_index_consistency_after_multiple_soft_deletes() {
+    let env = Env::default();
+    let (client, _admin, patient, doctor, _v1) = setup_for_ttl(&env);
+
+    // Create 5 records of the same type.
+    let mut ids: Vec<u64> = Vec::new(&env);
+    for i in 0u8..5 {
+        let id = client.add_medical_record(
+            &patient,
+            &doctor,
+            &encrypted_ref(&env, i + 30),
+            &Symbol::new(&env, "LAB"),
+            &policy(&env),
+        );
+        ids.push_back(id);
+    }
+
+    // Soft-delete the first 3.
+    for i in 0u32..3 {
+        let record_id = ids.get(i).unwrap();
+        client.soft_delete_record(&record_id, &patient);
+    }
+
+    // The type index must contain exactly 2 surviving entries.
+    let entries = client.get_global_records_by_type(&Symbol::new(&env, "LAB"));
+    assert_eq!(entries.len(), 2, "type index should have 2 entries after 3 soft deletes");
+
+    let count = client.get_global_type_count(&Symbol::new(&env, "LAB"));
+    assert_eq!(count, 2, "get_global_type_count should return 2");
+
+    // The three deleted IDs must not appear in the index.
+    let del_id0 = ids.get(0).unwrap();
+    let del_id1 = ids.get(1).unwrap();
+    let del_id2 = ids.get(2).unwrap();
+    for entry in entries.iter() {
+        let rid = entry.record_id;
+        assert_ne!(rid, del_id0, "deleted record 1 must not appear in type index");
+        assert_ne!(rid, del_id1, "deleted record 2 must not appear in type index");
+        assert_ne!(rid, del_id2, "deleted record 3 must not appear in type index");
+    }
+
+    // The two surviving IDs must be present.
+    let keep_id0 = ids.get(3).unwrap();
+    let keep_id1 = ids.get(4).unwrap();
+    let mut found0 = false;
+    let mut found1 = false;
+    for entry in entries.iter() {
+        if entry.record_id == keep_id0 {
+            found0 = true;
+        }
+        if entry.record_id == keep_id1 {
+            found1 = true;
+        }
+    }
+    assert!(found0, "surviving record 4 must be present in type index");
+    assert!(found1, "surviving record 5 must be present in type index");
+}
+
+#[test]
+fn test_deleted_records_not_returned_by_type_query() {
+    let env = Env::default();
+    let (client, _admin, patient, doctor, _v1) = setup_for_ttl(&env);
+
+    // Add 5 records of a distinct type and soft-delete 3.
+    let mut ids: Vec<u64> = Vec::new(&env);
+    for i in 0u8..5 {
+        let id = client.add_medical_record(
+            &patient,
+            &doctor,
+            &encrypted_ref(&env, i + 40),
+            &Symbol::new(&env, "VISIT"),
+            &policy(&env),
+        );
+        ids.push_back(id);
+    }
+
+    let del_id0 = ids.get(0).unwrap();
+    let del_id1 = ids.get(1).unwrap();
+    let del_id2 = ids.get(2).unwrap();
+    client.soft_delete_record(&del_id0, &patient);
+    client.soft_delete_record(&del_id1, &patient);
+    client.soft_delete_record(&del_id2, &patient);
+
+    let entries = client.get_global_records_by_type(&Symbol::new(&env, "VISIT"));
+    for entry in entries.iter() {
+        let rid = entry.record_id;
+        assert_ne!(rid, del_id0, "deleted record 1 must not be in type query results");
+        assert_ne!(rid, del_id1, "deleted record 2 must not be in type query results");
+        assert_ne!(rid, del_id2, "deleted record 3 must not be in type query results");
+    }
+}
+
+// ─── Issue #328 ── Merkle proof edge cases ────────────────────────────────
+
+#[test]
+fn test_merkle_empty_tree_proof_returns_false() {
+    let env = Env::default();
+    let contract_id = env.register(MedicalRegistry, ());
+    let client = MedicalRegistryClient::new(&env, &contract_id);
+    let patient = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    // Empty tree: root is the sha256("") sentinel.
+    // An empty proof for any record_id must return false.
+    let empty_proof: Vec<BytesN<32>> = Vec::new(&env);
+    assert!(
+        !client.verify_record_membership(&patient, &1, &empty_proof),
+        "empty-tree empty-proof must return false"
+    );
+
+    // A non-empty proof against an empty tree must also return false.
+    let mut non_empty_proof: Vec<BytesN<32>> = Vec::new(&env);
+    non_empty_proof.push_back(BytesN::from_array(&env, &[0xabu8; 32]));
+    assert!(
+        !client.verify_record_membership(&patient, &1, &non_empty_proof),
+        "empty-tree non-empty-proof must return false"
+    );
+}
+
+#[test]
+fn test_merkle_single_record_valid_proof_verified() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, patient, ids) = setup_with_records(&env, 1);
+
+    let id = ids.get(0).unwrap();
+    // Single-leaf tree: root = hash_leaf(id). The correct proof is empty.
+    let proof: Vec<BytesN<32>> = Vec::new(&env);
+    assert!(
+        client.verify_record_membership(&patient, &id, &proof),
+        "single-record valid proof must be accepted"
+    );
+}
+
+#[test]
+fn test_merkle_wrong_depth_proof_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, patient, ids) = setup_with_records(&env, 1);
+
+    let id = ids.get(0).unwrap();
+    // Correct proof for a single-leaf tree is empty (depth 0).
+    // Supplying an extra sibling (depth 1) computes a different root → rejected.
+    let mut wrong_depth_proof: Vec<BytesN<32>> = Vec::new(&env);
+    wrong_depth_proof.push_back(BytesN::from_array(&env, &[0xffu8; 32]));
+    assert!(
+        !client.verify_record_membership(&patient, &id, &wrong_depth_proof),
+        "proof with wrong depth must be rejected"
+    );
+}
