@@ -50,6 +50,9 @@ pub enum Role {
     Patient,
     Insurer,
     Auditor,
+    Provider,
+    PayerReviewer,
+    EmergencyResponder,
 }
 
 #[contracttype]
@@ -567,8 +570,12 @@ impl AccessControl {
         for i in 0..access_list.len() {
             if let Some(permission) = access_list.get(i) {
                 if permission.resource_id == resource_id && found_grantor.is_none() {
-                    // Verify revoker is either the original grantor or admin
-                    if permission.granted_by != revoker && revoker != admin {
+                    // Verify revoker is either the original grantor, admin, or holds PayerReviewer role
+                    let is_grantor = permission.granted_by == revoker;
+                    let is_admin = revoker == admin;
+                    let is_payer_reviewer =
+                        Self::load_active_role(&env, &revoker, &Role::PayerReviewer).is_some();
+                    if !is_grantor && !is_admin && !is_payer_reviewer {
                         return Err(ContractError::NotAuthorizedToRevoke);
                     }
                     found_grantor = Some(permission.granted_by.clone());
@@ -701,7 +708,14 @@ impl AccessControl {
         Ok(())
     }
 
-    /// Deactivate an entity (admin only)
+    /// Deactivate an entity (admin only).
+    ///
+    /// In addition to marking the entity inactive, this function emits an
+    /// `acc_rev` event for every active `AccessPermission` held by the entity
+    /// and a `cst_rev` event for every active `ConsentRecord` where the entity
+    /// is the subject.  External audit systems can therefore treat a single
+    /// deactivation as an implicit revocation of all access without needing a
+    /// separate revocation pass.
     pub fn deactivate_entity(
         env: Env,
         admin: Address,
@@ -729,6 +743,70 @@ impl AccessControl {
         entity.active = false;
         env.storage().persistent().set(&key, &entity);
 
+        // ── Emit one access-revoked event per active AccessPermission ─────────
+        // We read the entity's access list and emit an `acc_rev` event for each
+        // entry so that audit loggers receive an explicit signal for every
+        // implicit revocation caused by deactivation.
+        let access_key = DataKey::AccessList(wallet.clone());
+        let access_list: Vec<AccessPermission> = env
+            .storage()
+            .persistent()
+            .get(&access_key)
+            .unwrap_or(Vec::new(&env));
+
+        let now = env.ledger().timestamp();
+        for i in 0..access_list.len() {
+            if let Some(permission) = access_list.get(i) {
+                // Only emit for non-expired permissions — expired ones were
+                // already effectively inactive.
+                let is_active =
+                    permission.expires_at == 0 || permission.expires_at > now;
+                if is_active {
+                    env.events().publish(
+                        (symbol_short!("acc_rev"), wallet.clone(), permission.resource_id),
+                        permission.op_id,
+                    );
+                }
+            }
+        }
+
+        // ── Emit one consent-revoked event per active ConsentRecord ───────────
+        // Walk the subject's consent index and emit a `cst_rev` event for every
+        // consent that is still Active (and not expired).
+        let idx_key = DataKey::SubjectConsents(wallet.clone());
+        let consent_index: Vec<ConsentIndexEntry> = env
+            .storage()
+            .persistent()
+            .get(&idx_key)
+            .unwrap_or(Vec::new(&env));
+
+        for i in 0..consent_index.len() {
+            if let Some(entry) = consent_index.get(i) {
+                let consent_key = DataKey::Consent(
+                    wallet.clone(),
+                    entry.grantee.clone(),
+                    entry.purpose_code.clone(),
+                );
+                if let Some(record) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, ConsentRecord>(&consent_key)
+                {
+                    let is_active = matches!(record.status, ConsentStatus::Active)
+                        && (record.expires_at == 0 || record.expires_at > now);
+                    if is_active {
+                        env.events().publish(
+                            (symbol_short!("cst_rev"), wallet.clone(), entry.grantee),
+                            (entry.purpose_code, record.op_id),
+                        );
+                    }
+                }
+            }
+        }
+
+        // ── Emit the top-level deactivation event ─────────────────────────────
+        // Downstream consumers that prefer a single "deactivate = revoke all"
+        // signal can listen for this event alone.
         env.events()
             .publish((symbol_short!("deact"), wallet), symbol_short!("success"));
         Ok(())

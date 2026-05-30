@@ -530,7 +530,7 @@ fn test_revoke_access_not_authorized() {
 // Role-based access control tests
 // =============================================================================
 
-fn setup(env: &Env) -> (Address, AccessControlClient) {
+fn setup_rbac(env: &Env) -> (Address, AccessControlClient) {
     let contract_id = env.register(AccessControl, ());
     let client = AccessControlClient::new(env, &contract_id);
     let admin = Address::generate(env);
@@ -544,7 +544,7 @@ fn setup(env: &Env) -> (Address, AccessControlClient) {
 fn test_grant_role_and_has_role() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     let provider = Address::generate(&env);
     assert!(!client.has_role(&provider, &Role::Provider));
@@ -557,7 +557,7 @@ fn test_grant_role_and_has_role() {
 fn test_admin_always_has_every_role() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     // Admin satisfies every role check without an explicit grant.
     assert!(client.has_role(&admin, &Role::Provider));
@@ -570,7 +570,7 @@ fn test_admin_always_has_every_role() {
 fn test_grant_role_non_admin_rejected() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_admin, client) = setup(&env);
+    let (_admin, client) = setup_rbac(&env);
 
     let non_admin = Address::generate(&env);
     let target = Address::generate(&env);
@@ -583,7 +583,7 @@ fn test_grant_role_non_admin_rejected() {
 fn test_grant_role_duplicate_rejected() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     let provider = Address::generate(&env);
     client.grant_role(&admin, &provider, &Role::Provider, &0);
@@ -598,7 +598,7 @@ fn test_grant_role_duplicate_rejected() {
 fn test_revoke_role() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     let auditor = Address::generate(&env);
     client.grant_role(&admin, &auditor, &Role::Auditor, &0);
@@ -612,7 +612,7 @@ fn test_revoke_role() {
 fn test_revoke_role_not_found() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     let nobody = Address::generate(&env);
     let result = client.try_revoke_role(&admin, &nobody, &Role::Auditor);
@@ -623,7 +623,7 @@ fn test_revoke_role_not_found() {
 fn test_revoke_role_non_admin_rejected() {
     let env = Env::default();
     env.mock_all_auths();
-    let (admin, client) = setup(&env);
+    let (admin, client) = setup_rbac(&env);
 
     let auditor = Address::generate(&env);
     let non_admin = Address::generate(&env);
