@@ -3,7 +3,8 @@ use crate::types::{
     SessionRecord, VirtualVisit, VisitStatus,
 };
 use soroban_sdk::{
-    contract, contractimpl, xdr::ToXdr, Address, Bytes, BytesN, Env, String, Symbol, Vec,
+    contract, contractimpl, panic_with_error, xdr::ToXdr, Address, Bytes, BytesN, Env, String,
+    Symbol, Vec,
 };
 
 const SESSION_TTL_SECONDS: u64 = 60 * 60;
@@ -22,6 +23,7 @@ impl TelemedicineContract {
         duration_minutes: u32,
         platform: Symbol,
         consent_obtained: bool,
+        recording_consent: bool,
     ) -> Result<u64, Error> {
         patient_id.require_auth();
 
@@ -34,7 +36,7 @@ impl TelemedicineContract {
 
         let visit = VirtualVisit {
             visit_id,
-            patient_id,
+            patient_id: patient_id.clone(),
             provider_id: provider_id.clone(),
             scheduled_time: visit_time,
             visit_type,
@@ -42,8 +44,9 @@ impl TelemedicineContract {
             status: VisitStatus::Scheduled,
             session_start: None,
             session_end: None,
-            patient_location: String::from_str(&env, ""), // Default empty, updated at start
+            patient_location: String::from_str(&env, ""),
             consent_documented: consent_obtained,
+            recording_consent: Some(recording_consent),
         };
 
         env.storage()
@@ -53,12 +56,59 @@ impl TelemedicineContract {
             .instance()
             .set(&DataKey::VisitCount, &visit_id);
 
+        // Emit consent event per HIPAA requirement.
+        if recording_consent {
+            env.events().publish(
+                (Symbol::new(&env, "recording_consent_granted"), visit_id),
+                patient_id.clone(),
+            );
+        } else {
+            env.events().publish(
+                (Symbol::new(&env, "recording_consent_denied"), visit_id),
+                patient_id.clone(),
+            );
+        }
+
         env.events().publish(
             (Symbol::new(&env, "visit_scheduled"), visit_id),
             (provider_id, visit_time, duration_minutes),
         );
 
         Ok(visit_id)
+    }
+
+    /// Store recording metadata. Requires recording_consent = true on the session.
+    pub fn store_recording_metadata(
+        env: Env,
+        visit_id: u64,
+        provider_id: Address,
+        recording_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        provider_id.require_auth();
+
+        let visit: VirtualVisit = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VirtualVisit(visit_id))
+            .ok_or_else(|| {
+                panic_with_error!(&env, Error::VisitNotFound);
+            })?;
+
+        if visit.provider_id != provider_id {
+            panic_with_error!(&env, Error::NotAuthorized);
+        }
+
+        match visit.recording_consent {
+            Some(true) => {}
+            _ => panic_with_error!(&env, Error::RecordingConsentRequired),
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "recording_stored"), visit_id),
+            recording_hash,
+        );
+
+        Ok(())
     }
 
     pub fn start_virtual_session(
@@ -75,14 +125,14 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::VirtualVisit(visit_id))
-            .ok_or(Error::VisitNotFound)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VisitNotFound));
 
         if visit.provider_id != provider_id {
-            return Err(Error::NotAuthorized);
+            panic_with_error!(&env, Error::NotAuthorized);
         }
 
         if visit.status != VisitStatus::Scheduled {
-            return Err(Error::InvalidStatusTransition);
+            panic_with_error!(&env, Error::InvalidStatusTransition);
         }
 
         // Enforce eligibility before allowing session start.
@@ -151,19 +201,19 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::Session(visit_id))
-            .ok_or(Error::InvalidSessionToken)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::InvalidSessionToken));
 
         if session.visit_id != visit_id || session.caller != caller {
-            return Err(Error::InvalidSessionToken);
+            panic_with_error!(&env, Error::InvalidSessionToken);
         }
         if session.used {
-            return Err(Error::SessionAlreadyUsed);
+            panic_with_error!(&env, Error::SessionAlreadyUsed);
         }
         if env.ledger().timestamp() > session.expires_at {
-            return Err(Error::SessionExpired);
+            panic_with_error!(&env, Error::SessionExpired);
         }
         if session.token_hash != hash_token(&env, &token) {
-            return Err(Error::InvalidSessionToken);
+            panic_with_error!(&env, Error::InvalidSessionToken);
         }
 
         session.used = true;
@@ -189,10 +239,10 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::VirtualVisit(visit_id))
-            .ok_or(Error::VisitNotFound)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VisitNotFound));
 
         if visit.provider_id != provider_id {
-            return Err(Error::NotAuthorized);
+            panic_with_error!(&env, Error::NotAuthorized);
         }
 
         env.events().publish(
@@ -216,14 +266,14 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::VirtualVisit(visit_id))
-            .ok_or(Error::VisitNotFound)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VisitNotFound));
 
         if visit.provider_id != provider_id {
-            return Err(Error::NotAuthorized);
+            panic_with_error!(&env, Error::NotAuthorized);
         }
 
         if visit.status != VisitStatus::InProgress {
-            return Err(Error::InvalidStatusTransition);
+            panic_with_error!(&env, Error::InvalidStatusTransition);
         }
 
         visit.status = VisitStatus::Completed;
@@ -378,10 +428,10 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::VirtualVisit(visit_id))
-            .ok_or(Error::VisitNotFound)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VisitNotFound));
 
         if visit.provider_id != reporter && visit.patient_id != reporter {
-            return Err(Error::NotAuthorized);
+            panic_with_error!(&env, Error::NotAuthorized);
         }
 
         env.events().publish(
@@ -405,13 +455,13 @@ impl TelemedicineContract {
             .storage()
             .persistent()
             .get(&DataKey::VirtualVisit(visit_id))
-            .ok_or(Error::VisitNotFound)?;
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VisitNotFound));
 
         if visit.provider_id != provider_id {
-            return Err(Error::NotAuthorized);
+            panic_with_error!(&env, Error::NotAuthorized);
         }
         if visit.patient_id != patient_id {
-            return Err(Error::NotAuthorized); // Mismatch between requested prescription patient and visit patient
+            panic_with_error!(&env, Error::NotAuthorized);
         }
 
         // Mocking Rx ID generation

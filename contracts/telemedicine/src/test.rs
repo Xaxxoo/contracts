@@ -31,6 +31,7 @@ fn test_telemedicine_lifecycle() {
         &30,
         &platform,
         &true,
+        &true,
     );
     assert_eq!(visit_id, 1);
 
@@ -137,6 +138,7 @@ fn test_auth_and_eligibility_failures() {
         &30,
         &Symbol::new(&env, "ZoomHD"),
         &true,
+        &false,
     );
 
     // Try starting session with wrong provider
@@ -195,6 +197,7 @@ fn test_session_tokens_are_unique_bound_expiring_and_non_replayable() {
         &30,
         &Symbol::new(&env, "ZoomHD"),
         &true,
+        &true,
     );
     let visit_two = client.schedule_virtual_visit(
         &patient_id,
@@ -204,6 +207,7 @@ fn test_session_tokens_are_unique_bound_expiring_and_non_replayable() {
         &30,
         &Symbol::new(&env, "ZoomHD"),
         &true,
+        &false,
     );
 
     let token_one = client.start_virtual_session(

@@ -15,6 +15,8 @@ pub enum Error {
     PolicyNotFound = 9,
     LicenseExpired = 10,
     CrossStateNotPermitted = 11,
+    /// Recording metadata cannot be stored without explicit patient consent
+    RecordingConsentRequired = 12,
 }
 
 /// On-chain record of a provider's license in a given jurisdiction (state/region).
@@ -66,6 +68,8 @@ pub struct VirtualVisit {
     pub session_end: Option<u64>,
     pub patient_location: String,
     pub consent_documented: bool,
+    /// Explicit per-session recording consent (HIPAA). None = not yet decided.
+    pub recording_consent: Option<bool>,
 }
 
 #[contracttype]
